@@ -1,0 +1,47 @@
+services:
+
+  # ── srt_platform database ─────────────────────────────────────────────────
+  platform-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       srt_platform
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: ${PLATFORM_DB_PASSWORD}
+    volumes:
+      - platform_pg_data:/var/lib/postgresql/data
+      - ./db/platform-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d srt_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "127.0.0.1:5433:5432"   
+
+  # ── Platform API ──────────────────────────────────────────────────────────
+  platform-api:
+    build:
+      context: ./platform/server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      platform-db:
+        condition: service_healthy
+    env_file: ./platform/.env
+    environment:
+      PLATFORM_DB_HOST: platform-db
+      PLATFORM_DB_PORT: 5432
+    volumes:
+      - ./platform/server/keys:/app/keys:ro   # RSA keys (read-only in container)
+    ports:
+      - "127.0.0.1:5000:5000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  platform_pg_data:
