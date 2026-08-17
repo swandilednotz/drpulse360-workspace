@@ -1,3 +1,4 @@
+
 const nodemailer = require('nodemailer');
 
 const transport = nodemailer.createTransport({
@@ -15,7 +16,7 @@ const APP_URL = process.env.APP_BASE_URL || 'http://localhost:3000';
 
 // ── Welcome + email verification ─────────────────────────────────────────
 async function sendWelcomeEmail({ to, name, verifyToken, tempPassword, auth_provider }) {
-  const verifyUrl = `${APP_URL}/auth/verify-email?token=${verifyToken}`;
+  const verifyUrl = `${APP_URL}/api/auth/verify-email?token=${verifyToken}`;
 
   let body = `Hi ${name || 'there'},\n\nYou have been added to DR Pulse 360.\n\n`;
 
@@ -56,4 +57,18 @@ async function sendPasswordResetEmail({ to, token }) {
   });
 }
 
-module.exports = { sendWelcomeEmail, sendPasswordResetEmail };
+async function sendAccessGrantedEmail({ to, name, appName }) {
+  const body = `Hi ${name || 'there'},\n\n` +
+    `You've been given access to ${appName} on DR Pulse 360.\n\n` +
+    `Log in with your existing DR Pulse 360 credentials at: ${APP_URL}\n\n` +
+    `The DR Pulse 360 team`;
+
+  return transport.sendMail({
+    from: FROM,
+    to,
+    subject: `You now have access to ${appName} on DR Pulse 360`,
+    text: body,
+  });
+}
+
+module.exports = { sendWelcomeEmail, sendPasswordResetEmail, sendAccessGrantedEmail };

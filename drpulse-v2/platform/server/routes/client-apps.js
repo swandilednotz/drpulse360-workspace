@@ -204,6 +204,33 @@ router.get('/mine', requirePlatformAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
+
+// ── GET /api/client-apps/all  — all apps for tenant, with access flag ────
+// Used by the launcher to show locked tiles for apps the user can request.
+router.get('/all', requirePlatformAuth, async (req, res) => {
+  try {
+    const { rows } = await platform.query(
+      `SELECT ca.id, ca.is_active,
+              a.slug AS app_slug, a.name AS app_name,
+              r.role_name AS role,
+              CASE WHEN r.user_id IS NOT NULL THEN TRUE ELSE FALSE END AS has_access
+         FROM client_apps ca
+         JOIN apps a ON a.id = ca.app_id
+         JOIN tenants t ON t.id = ca.tenant_id
+         JOIN platform_users u ON u.id = $1
+         LEFT JOIN user_client_app_roles r
+           ON r.client_app_id = ca.id AND r.user_id = $1
+        WHERE u.tenant_id = t.id AND ca.is_active = TRUE
+        ORDER BY a.name`,
+      [req.user.sub]
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error('[client-apps/all]', e.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── PATCH /api/client-apps/:id/deactivate  — suspend a client's product access
 router.patch('/:id/deactivate', requirePlatformAuth, async (req, res) => {
   try {

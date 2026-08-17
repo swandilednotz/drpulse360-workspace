@@ -61,7 +61,22 @@ async function getUserClientApps(userId) {
 // Build and sign master JWT
 async function issueMasterJWT(user) {
   const clientAppIds = await getUserClientApps(user.id);
-  const token = signMasterToken(user, clientAppIds);
+
+  // Get highest role across all client_apps for platform_role claim
+  const { rows: roleRows } = await platform.query(
+    `SELECT role_name FROM user_client_app_roles
+     WHERE user_id = $1
+     ORDER BY CASE role_name
+       WHEN 'superuser' THEN 1
+       WHEN 'admin'     THEN 2
+       WHEN 'viewer'    THEN 3
+       ELSE 4 END
+     LIMIT 1`,
+    [user.id]
+  );
+  const platformRole = roleRows[0]?.role_name ?? 'viewer';
+
+  const token = signMasterToken({ ...user, platform_role: platformRole }, clientAppIds);
 
   // Record session
   const hash = crypto.createHash('sha256').update(token).digest('hex');
@@ -562,9 +577,9 @@ router.post('/token-exchange', requirePlatformAuth, async (req, res) => {
 
     const ca = caRows[0];
 
-    // Get user's role in this client_app
+    // Get user's role in this client_app (plus any per-user permission override)
     const { rows: roleRows } = await platform.query(
-      `SELECT role_name FROM user_client_app_roles
+      `SELECT role_name, permissions_override FROM user_client_app_roles
         WHERE user_id = $1 AND client_app_id = $2`,
       [req.user.sub, client_app_id]
     );
@@ -582,8 +597,17 @@ router.post('/token-exchange', requirePlatformAuth, async (req, res) => {
     const permissions = {};
     permRows.forEach(r => { permissions[r.page_key] = r.level; });
 
+    // Per-user overrides (set at creation time, or via an approved access
+    // request) win over the role's defaults on a page-by-page basis.
+    if (roleRows[0].permissions_override) {
+      Object.assign(permissions, roleRows[0].permissions_override);
+    }
+
     const scopedToken = signScopedToken(
-      { id: req.user.sub, tenant_id: req.user.tenant_id, email: req.user.email },
+      { id: req.user.sub, tenant_id: req.user.tenant_id, email: req.user.email, name: req.user.name,
+        master_token_hash: crypto.createHash('sha256')
+          .update(req.headers.authorization?.replace(/^Bearer\s+/i,'') || '')
+          .digest('hex').slice(0,16) },
       client_app_id, ca.app_slug, role, permissions
     );
 
@@ -759,6 +783,74 @@ router.post('/2fa/disable', requirePlatformAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
+// POST /auth/refresh-scoped
+
+router.post('/refresh-scoped', async (req, res) => {
+  const { scoped_token } = req.body;
+  if (!scoped_token) return res.status(400).json({ error: 'scoped_token required' });
+
+  try {
+    // Verify the scoped token
+    let scopedPayload;
+    try {
+      scopedPayload = jwt.verify(scoped_token, PUBLIC_KEY, { algorithms: ['RS256'] });
+    } catch {
+      return res.status(401).json({ error: 'Invalid scoped token', redirect: true });
+    }
+
+    // Check the master session is still active (not revoked, not expired)
+    const masterHash = scopedPayload.master_token_hash;
+    if (masterHash) {
+      const { rows: sessionRows } = await platform.query(
+        `SELECT id FROM sessions
+          WHERE token_hash LIKE $1
+            AND revoked_at IS NULL
+            AND expires_at > NOW()`,
+        [masterHash + '%']
+      );
+      if (!sessionRows.length) {
+        return res.status(401).json({
+          error:    'Session expired or logged out',
+          redirect: true,
+        });
+      }
+    }
+
+    // Reissue a fresh scoped token with the same claims
+    const { rows: permRows } = await platform.query(
+      `SELECT page_key, level FROM role_permissions
+        WHERE client_app_id = $1 AND role_name = $2`,
+      [scopedPayload.client_app_id, scopedPayload.role]
+    );
+    const permissions = {};
+    permRows.forEach(r => { permissions[r.page_key] = r.level; });
+
+    // Preserve any per-user override so it survives refresh, not just the
+    // initial token exchange.
+    const { rows: overrideRows } = await platform.query(
+      `SELECT permissions_override FROM user_client_app_roles
+        WHERE user_id = $1 AND client_app_id = $2`,
+      [scopedPayload.sub, scopedPayload.client_app_id]
+    );
+    if (overrideRows.length && overrideRows[0].permissions_override) {
+      Object.assign(permissions, overrideRows[0].permissions_override);
+    }
+
+    const newToken = signScopedToken(
+      { id: scopedPayload.sub, tenant_id: scopedPayload.tenant_id,
+        email: scopedPayload.email, master_token_hash: masterHash },
+      scopedPayload.client_app_id, scopedPayload.app,
+      scopedPayload.role, permissions
+    );
+
+    res.json({ token: newToken });
+  } catch (e) {
+    console.error('[auth/refresh-scoped]', e.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /auth/logout
 router.post('/logout', requirePlatformAuth, async (req, res) => {
   try {
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
@@ -768,6 +860,12 @@ router.post('/logout', requirePlatformAuth, async (req, res) => {
         `UPDATE sessions SET revoked_at = NOW() WHERE token_hash = $1`, [hash]
       );
     }
+    // Also revoke ALL sessions for this user — logs out of all devices
+    await platform.query(
+      `UPDATE sessions SET revoked_at = NOW()
+        WHERE user_id = $1 AND revoked_at IS NULL`,
+      [req.user.sub]
+    );
     res.json({ message: 'Logged out' });
   } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });

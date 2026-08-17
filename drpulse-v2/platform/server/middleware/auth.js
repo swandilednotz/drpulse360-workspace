@@ -40,7 +40,8 @@ function signMasterToken(user, clientAppIds) {
       tenant_id:    user.tenant_id,
       email:        user.email,
       name:         user.name,
-      client_apps:  clientAppIds,   // ["ca-sony-srt", "ca-sony-analytics"]
+      platform_role: user.platform_role ?? 'viewer',
+      client_apps:  clientAppIds,   // ["ca-sony-srt", "ca-sony-subtitle"]
       twofa_ok:     true,
       purpose:      'master',
     },
@@ -61,6 +62,7 @@ function signScopedToken(user, clientAppId, appSlug, role, permissions) {
       sub:           user.id,
       tenant_id:     user.tenant_id,
       email:         user.email,
+      name:          user.name, 
       client_app_id: clientAppId,   // "ca-sony-srt"
       app:           appSlug,        // "srt-manager"
       role,

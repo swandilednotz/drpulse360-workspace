@@ -31,6 +31,7 @@ app.use('/api/auth',             require('./routes/auth'));
 app.use('/api/auth/dev-login',   require('./routes/dev-login'));  // dev only
 app.use('/api/client-apps',      require('./routes/client-apps'));
 app.use('/api/users',            require('./routes/users'));
+app.use('/api/access-requests',  require('./routes/access-requests'));
 
 // ── Health ────────────────────────────────────────────────────────────────
 app.get('/health', (_, res) => res.json({ ok: true, service: 'drpulse360-platform' }));

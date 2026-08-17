@@ -6,9 +6,9 @@ const { sendWelcomeEmail } = require('../mailer');
 
 // ── Edit these ─────────────────────────────────────────────────────────────
 const EMAIL    = 'strangeambivert@gmail.com';
-const NAME     = 'SRT Admin';
+const NAME     = 'Super User';
 const PASSWORD = 'admin1234';   
-const ROLE     = 'custom';            // superuser | admin | viewer | custom
+const ROLE     = 'superuser';            // superuser | admin | viewer | custom
 const CLIENT_APP_ID = 'ca-sony-srt';
 // ──────────────────────────────────────────────────────────────────────────
 console.log('SMTP_USER:', process.env.SMTP_USER);
