@@ -11,13 +11,20 @@ services:
     volumes:
       - platform_pg_data:/var/lib/postgresql/data
       - ./db/platform-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      # Every migration built after the base schema — all run once, in
+      # order, ONLY on a truly empty volume (first-ever startup). If you
+      # ever wipe this volume and re-init, all of these run again together.
+      - ./db/02-permissions-override.sql:/docker-entrypoint-initdb.d/02-permissions-override.sql
+      - ./db/03-platform-role.sql:/docker-entrypoint-initdb.d/03-platform-role.sql
+      - ./db/04-access-requests.sql:/docker-entrypoint-initdb.d/04-access-requests.sql
+      - ./db/06-request-permission-sets.sql:/docker-entrypoint-initdb.d/06-request-permission-sets.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d srt_platform"]
       interval: 5s
       timeout: 5s
       retries: 10
     ports:
-      - "127.0.0.1:5433:5432"   
+      - "127.0.0.1:5433:5432"
 
   # ── Platform API ──────────────────────────────────────────────────────────
   platform-api:
@@ -43,5 +50,39 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── Frontend ────────────────────────────────────────────────────────────
+  drpulse-ui:
+    build:
+      context: ../drpulse-ui
+      dockerfile: Dockerfile
+      args:
+        # Vite bakes these in at build time — not read from .env at
+        # container start. Rebuild this image if either value ever changes.
+        VITE_SRT_URL: https://drmonitoring.com
+        VITE_SUBTITLE_URL: https://subtitle.drmonitoring.com
+    restart: unless-stopped
+    depends_on:
+      - platform-api
+    # No host port — only Caddy (same docker network) talks to this.
+    expose:
+      - "80"
+
+  # ── TLS termination + reverse proxy ────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - platform-api
+      - drpulse-ui
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+
 volumes:
   platform_pg_data:
+  caddy_data:
+  caddy_config:

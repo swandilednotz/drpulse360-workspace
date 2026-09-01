@@ -38,6 +38,7 @@ function signMasterToken(user, clientAppIds) {
     {
       sub:          user.id,
       tenant_id:    user.tenant_id,
+      tenant_name:   user.tenant_name ?? '',  
       email:        user.email,
       name:         user.name,
       platform_role: user.platform_role ?? 'viewer',

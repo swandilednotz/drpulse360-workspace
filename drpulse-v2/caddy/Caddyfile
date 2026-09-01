@@ -1,0 +1,11 @@
+drpulse.drmonitoring.com {
+    # API routes go to the backend
+    handle /api/* {
+        reverse_proxy platform-api:5000
+    }
+
+    # Everything else is the frontend
+    handle {
+        reverse_proxy drpulse-ui:80
+    }
+}

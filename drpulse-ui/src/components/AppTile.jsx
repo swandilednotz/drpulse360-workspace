@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api }  from '../lib/api.js';
 import { auth } from '../lib/auth.js';
+import { APP_URLS } from '../lib/appUrls.js';
 
 // Icon map — extend as new products are added
 const ICONS = {
@@ -12,13 +14,8 @@ const ICONS = {
   'subtitle':    '💬',
 };
 
-// Where each product app lives
-const APP_URLS = {
-  'srt-manager': import.meta.env.VITE_SRT_URL      || 'https://drmonitoring.com',
-  'subtitle':    import.meta.env.VITE_SUBTITLE_URL  || 'https://subtitle.drmonitoring.com',
-};
-
 export default function AppTile({ app, locked = false }) {
+  const navigate = useNavigate();
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState(null);
   const [hovering, setHovering] = useState(false);
@@ -26,39 +23,26 @@ export default function AppTile({ app, locked = false }) {
   const icon   = ICONS[app.app_slug] || '🔲';
   const appUrl = APP_URLS[app.app_slug];
 
-  // async function handleClick() {
-  //   if (locked || loading) return;
-  //   setLoading(true);
-  //   setError(null);
-  //   try {
-  //     const { token } = await api.auth.tokenExchange(app.id);
-  //     const target = appUrl || 'http://localhost:4000';
-  //     window.location.href = `${target}/auth?token=${token}`;
-  //   } catch (e) {
-  //     setError(e.message);
-  //     setLoading(false);
-  //   }
-  // }
-
   async function handleClick() {
-  if (locked || loading) return;
-  setLoading(true);
-  setError(null);
-  try {
-    console.log('[AppTile] starting token exchange for', app.id);
-    const result = await api.auth.tokenExchange(app.id);
-    console.log('[AppTile] token exchange result:', result);
-    const { token } = result;
-    const target = appUrl || 'http://localhost:4000';
-    console.log('[AppTile] navigating to:', target);
-    // window.location.href = `${target}/auth?token=${token}`, '_blank';
-    window.open(`${target}/auth?token=${token}`, '_blank');
-  } catch (e) {
-    console.error('[AppTile] error:', e);
-    setError(e.message);
-    setLoading(false);
+    if (locked || loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const { token } = await api.auth.tokenExchange(app.id);
+      const target = appUrl || 'http://localhost:4000';
+      window.open(`${target}/auth?token=${token}`, '_blank');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
   }
-}
+
+  function handleRequestAccess(e) {
+    e.stopPropagation();
+    navigate(`/request-access/${app.id}`);
+  }
+
   return (
     <div
       onClick={handleClick}
@@ -127,7 +111,7 @@ export default function AppTile({ app, locked = false }) {
         </div>
       )}
 
-     
+      {/* Request Access overlay — shown on hover when locked */}
       {locked && (
         <div style={{
           position:       'absolute',
@@ -144,7 +128,7 @@ export default function AppTile({ app, locked = false }) {
         }}>
           <span style={{ fontSize: 18 }}>🔒</span>
           <button
-            onClick={e => { e.stopPropagation(); alert(`Request access to ${app.app_name} — form coming soon`); }}
+            onClick={handleRequestAccess}
             style={{
               background:   '#5B4FCF',
               color:        'white',

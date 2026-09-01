@@ -108,8 +108,20 @@ export default function AccessRequests() {
                     <span style={{ fontWeight: 400, color: '#888' }}> · {r.app_name}</span>
                   </div>
                   <div style={{ fontSize: 12.5, color: '#666' }}>
-                    Requesting <strong style={{ textTransform: 'capitalize' }}>{r.requested_level}</strong> access to{' '}
-                    <span style={{ textTransform: 'capitalize' }}>{r.page_key}</span>
+                    {r.requested_permissions ? (
+                      <>
+                        Requesting:{' '}
+                        {Object.entries(r.requested_permissions)
+                          .filter(([, level]) => level && level !== 'none')
+                          .map(([page, level]) => `${page} (${level})`)
+                          .join(', ')}
+                      </>
+                    ) : (
+                      <>
+                        Requesting <strong style={{ textTransform: 'capitalize' }}>{r.requested_level}</strong> access to{' '}
+                        <span style={{ textTransform: 'capitalize' }}>{r.page_key}</span>
+                      </>
+                    )}
                     {r.reason && <span> — "{r.reason}"</span>}
                   </div>
                   <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>

@@ -76,7 +76,15 @@ async function issueMasterJWT(user) {
   );
   const platformRole = roleRows[0]?.role_name ?? 'viewer';
 
-  const token = signMasterToken({ ...user, platform_role: platformRole }, clientAppIds);
+  const { rows: tenantRows } = await platform.query(
+    `SELECT name FROM tenants WHERE id = $1`, [user.tenant_id]
+  );
+  const tenantName = tenantRows[0]?.name ?? '';
+
+  const token = signMasterToken(
+    { ...user, platform_role: platformRole, tenant_name: tenantName },
+    clientAppIds
+  );
 
   // Record session
   const hash = crypto.createHash('sha256').update(token).digest('hex');
@@ -91,16 +99,17 @@ async function issueMasterJWT(user) {
     `UPDATE platform_users SET last_login_at = NOW() WHERE id = $1`, [user.id]
   );
 
-  return { token, clientAppIds };
+  return { token, clientAppIds, tenantName };
 }
 
 // Public-safe user object
-function publicUser(user, clientAppIds) {
+function publicUser(user, clientAppIds, tenantName) {
   return {
     id:           user.id,
     email:        user.email,
     name:         user.name,
     tenant_id:    user.tenant_id,
+    tenant_name:  tenantName,
     auth_provider: user.auth_provider,
     totp_enabled: user.totp_enabled,
     client_apps:  clientAppIds,
@@ -263,10 +272,10 @@ router.post('/2fa/verify-setup', async (req, res) => {
       [hashedCodes, user.id]
     );
 
-    const { token, clientAppIds } = await issueMasterJWT(user);
+    const { token, clientAppIds, tenantName } = await issueMasterJWT(user);
     await audit(user.tenant_id, user.id, null, '2fa_enabled');
 
-    res.json({ token, backupCodes: plainCodes, user: publicUser(user, clientAppIds) });
+    res.json({ token, backupCodes: plainCodes, user: publicUser(user, clientAppIds, tenantName) });
   } catch (e) {
     console.error('[auth/2fa/verify-setup]', e.message);
     res.status(500).json({ error: 'Server error' });
@@ -298,10 +307,10 @@ router.post('/2fa/verify', async (req, res) => {
     });
     if (!valid) return res.status(401).json({ error: 'Incorrect code. Try again.' });
 
-    const { token, clientAppIds } = await issueMasterJWT(user);
+    const { token, clientAppIds, tenantName } = await issueMasterJWT(user);
     await audit(user.tenant_id, user.id, null, 'login', { method: 'totp' });
 
-    res.json({ token, user: publicUser(user, clientAppIds) });
+    res.json({ token, user: publicUser(user, clientAppIds, tenantName) });
   } catch (e) {
     console.error('[auth/2fa/verify]', e.message);
     res.status(500).json({ error: 'Server error' });
@@ -341,10 +350,10 @@ router.post('/2fa/verify-backup', async (req, res) => {
       `UPDATE platform_users SET backup_codes = $1 WHERE id = $2`, [remaining, user.id]
     );
 
-    const { token, clientAppIds } = await issueMasterJWT(user);
+    const { token, clientAppIds, tenantName } = await issueMasterJWT(user);
     await audit(user.tenant_id, user.id, null, 'login', { method: 'backup_code', codes_remaining: remaining.length });
 
-    res.json({ token, codesRemaining: remaining.length, user: publicUser(user, clientAppIds) });
+    res.json({ token, codesRemaining: remaining.length, user: publicUser(user, clientAppIds, tenantName) });
   } catch (e) {
     console.error('[auth/2fa/verify-backup]', e.message);
     res.status(500).json({ error: 'Server error' });
@@ -437,7 +446,7 @@ router.get('/google/callback', async (req, res) => {
     }
 
     const user = rows[0];
-    const { token, clientAppIds } = await issueMasterJWT(user);
+    const { token, clientAppIds, tenantName } = await issueMasterJWT(user);
     await audit(user.tenant_id, user.id, null, 'login', { method: 'google' });
 
     res.redirect(`${process.env.APP_BASE_URL}/auth/complete?token=${token}`);
@@ -538,7 +547,7 @@ router.get('/microsoft/callback', async (req, res) => {
     }
 
     const user = rows[0];
-    const { token, clientAppIds } = await issueMasterJWT(user);
+    const { token, clientAppIds, tenantName } = await issueMasterJWT(user);
     await audit(user.tenant_id, user.id, null, 'login', { method: 'microsoft' });
 
     res.redirect(`${process.env.APP_BASE_URL}/auth/complete?token=${token}`);
@@ -870,4 +879,5 @@ router.post('/logout', requirePlatformAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
+router.issueMasterJWT = issueMasterJWT;
 module.exports = router;
